@@ -11,8 +11,8 @@
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 
-const char* ssid     = "Wifi Everyday";
-const char* password = "hafiz456";
+const char* ssid     = "MBC Laboratory.";
+const char* password = "123gogoans";
 const String server = "159.89.204.122";
 const String port = "5000";
 
