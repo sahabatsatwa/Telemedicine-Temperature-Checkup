@@ -1,4 +1,7 @@
-#include <Arduino.h>
+#include <BLEDevice.h>
+#include <BLEUtils.h>
+#include <BLEServer.h>
+#include <BLE2902.h>
 #include <sstream>
 #include <Crypto.h>
 #include <base64.hpp>
@@ -10,11 +13,16 @@
 #define BLOCK_SIZE 32
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
+#define SERVICE_UUID (uint16_t)0x181A
+#define CHARACTERISTIC_UUID_RX "78604f25-789e-432e-b949-6fb2306fd5d7"
 
 const char* ssid     = "MBC Laboratory.";
 const char* password = "123gogoans";
-const String server = "159.89.204.122";
+const String server = "192.168.1.116";
 const String port = "5000";
+bool deviceConnected = false;
+std::string value = "0";
+int choose = 0;
 
 IRTherm temp;
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
@@ -32,6 +40,71 @@ float objectT;
 float ambientT;
 uint32_t a;
 uint32_t A;
+BLECharacteristic *pTemperatureCharacteristic;
+
+class MyServerCallbacks: public BLEServerCallbacks {
+    void onConnect(BLEServer* pServer) {
+      deviceConnected = true;
+    };
+
+    void onDisconnect(BLEServer* pServer) {
+      deviceConnected = false;
+    }
+};
+
+class WriteCallbacks: public BLECharacteristicCallbacks {
+  void onWrite(BLECharacteristic *pWriteCharacteristic) {
+    std::string value = pWriteCharacteristic->getValue();
+
+    if (value.length() > 0) {
+      Serial.println("Waiting for data....");
+      Serial.print("Received value: ");
+
+      for (int i = 0; i < value.length(); i++) {
+        Serial.print(value[i]);
+      }
+      Serial.println();
+      if (value == "1") {
+        choose = 1;
+        Serial.println("Memakai Bluetooth");
+      } 
+      else if (value == "2") {
+        choose = 2;
+        Serial.println("Memakai WiFi");
+      }
+      Serial.println("End Receive data");
+    }
+  }
+};
+
+void ble_connect()
+{
+    BLEDevice::init("Temperature Device");
+
+    BLEServer *pServer = BLEDevice::createServer();
+    pServer->setCallbacks(new MyServerCallbacks());
+
+    BLEService *pEnvironment = pServer->createService(SERVICE_UUID);
+
+    pTemperatureCharacteristic = pEnvironment->createCharacteristic(
+        BLEUUID((uint16_t)0x2A6E),  
+        BLECharacteristic::PROPERTY_NOTIFY
+    );
+
+    pTemperatureCharacteristic->addDescriptor(new BLE2902());
+
+    BLECharacteristic *pWriteCharacteristic = pEnvironment->createCharacteristic(
+      CHARACTERISTIC_UUID_RX,
+      BLECharacteristic::PROPERTY_WRITE
+    );
+
+    pWriteCharacteristic->addDescriptor(new BLE2902());
+
+    pWriteCharacteristic->setCallbacks(new WriteCallbacks());
+
+    pEnvironment->start();
+    pServer->getAdvertising()->start();
+}
 
 void wifi_connect() 
 {
@@ -116,8 +189,8 @@ void bufferSize(char* text, int &length)
 void encrypt(char* plain_text, char* output, int length)
 {
   byte enciphered[length];
-  int in_size;
-  byte suhu[in_size];
+  //int in_size;
+  //byte suhu[in_size];
   AES aesEncryptor(shaResult, iv, AES::AES_MODE_256, AES::CIPHER_ENCRYPT);
   //aesEncryptor.calcSizeAndPad(in_size);
   //aesEncryptor.padPlaintext((uint8_t*)plain_text, suhu);
@@ -264,7 +337,7 @@ void makeParam()
   hashing(payload);
   
   Serial.print("Hash: ");
-  for (byte i = 0; i < 16; i++) {
+  for (byte i = 0; i < 32; i++) {
       if (shaResult[i]<0x10) { Serial.print('0'); }
       Serial.print(shaResult[i], HEX);
   }
@@ -279,18 +352,27 @@ void setup() {
     for (;;);
   }
 
-  intro();  
-  WiFi.mode(WIFI_STA);
+  intro();
+  ble_connect();
+  while (choose == 0) {
+    delay(500);
+    Serial.print(".");
+  }
 
-  wifi_connect();
-
-  makeParam();
-  
+  if (deviceConnected) {
+    if (choose == 1) {
+      Serial.println("Lewat Bluetooth");
+    }      
+    else if(choose == 2) {
+      Serial.println("Lewat Wifi");
+      WiFi.mode(WIFI_STA);
+      wifi_connect();
+      makeParam();
+      sendParam(A);
+    } 
+  }  
   temp.begin();
   temp.setUnit(TEMP_C);
-
-  Serial.println("send parameter");
-  sendParam(A);
 }
 
 void loop() {
@@ -303,6 +385,7 @@ void loop() {
 
   char *plain_text = gcvt(objectT, 4, buf);
 
+  
   tampilSuhu();
 
   Serial.print("Proses ke: ");
@@ -317,7 +400,7 @@ void loop() {
   unsigned long start = micros();
   encrypt(plain_text, encrypted, length);
   unsigned long end = micros() - start;
-  Serial.print("SHA128 Encryption time: ");
+  Serial.print("Encryption time: ");
   Serial.print(end);
   Serial.println(" us");
   
@@ -325,9 +408,18 @@ void loop() {
   Serial.print("Encrypted: ");
   Serial.println(encrypted);
 
-
-  postData(encrypted);
-
+  if (deviceConnected) {
+      if (choose == 1) {
+        char data[8];
+        dtostrf(objectT, 2, 2, data);
+        Serial.println(data);
+        pTemperatureCharacteristic->setValue(data);
+        pTemperatureCharacteristic->notify();
+      }      
+      else if(choose == 2) {
+          postData(encrypted);
+      }
+  }
   // decrypt
   length = strlen(encrypted);
   char decrypted[length];
@@ -335,7 +427,7 @@ void loop() {
 
   Serial.print("Decrypted: ");
   Serial.println(decrypted);
-
+  
   int i;
   Serial.print("key: ");
   for ( i = 0; i < BLOCK_SIZE; i++ ) {
