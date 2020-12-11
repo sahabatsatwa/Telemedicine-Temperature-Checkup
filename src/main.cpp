@@ -20,6 +20,7 @@ const char* ssid     = "MBC Laboratory.";
 const char* password = "123gogoans";
 const String server = "192.168.1.116";
 const String port = "5000";
+const int LED = 32;
 bool deviceConnected = false;
 std::string value = "0";
 int choose = 0;
@@ -42,8 +43,10 @@ uint32_t a;
 uint32_t A;
 BLECharacteristic *pTemperatureCharacteristic;
 
+
 class MyServerCallbacks: public BLEServerCallbacks {
     void onConnect(BLEServer* pServer) {
+      digitalWrite(LED, HIGH);
       deviceConnected = true;
     };
 
@@ -57,22 +60,16 @@ class WriteCallbacks: public BLECharacteristicCallbacks {
     std::string value = pWriteCharacteristic->getValue();
 
     if (value.length() > 0) {
-      Serial.println("Waiting for data....");
-      Serial.print("Received value: ");
-
       for (int i = 0; i < value.length(); i++) {
         Serial.print(value[i]);
       }
       Serial.println();
       if (value == "1") {
         choose = 1;
-        Serial.println("Memakai Bluetooth");
       } 
       else if (value == "2") {
         choose = 2;
-        Serial.println("Memakai WiFi");
       }
-      Serial.println("End Receive data");
     }
   }
 };
@@ -188,13 +185,12 @@ void bufferSize(char* text, int &length)
 
 void encrypt(char* plain_text, char* output, int length)
 {
-  byte enciphered[length];
-  //int in_size;
-  //byte suhu[in_size];
+
+  int size = strlen(plain_text);
   AES aesEncryptor(shaResult, iv, AES::AES_MODE_256, AES::CIPHER_ENCRYPT);
-  //aesEncryptor.calcSizeAndPad(in_size);
-  //aesEncryptor.padPlaintext((uint8_t*)plain_text, suhu);
-  aesEncryptor.process((uint8_t*)plain_text, enciphered, length);
+  int encryptPadSize = aesEncryptor.calcSizeAndPad(size);
+  byte enciphered[encryptPadSize];
+  aesEncryptor.process((uint8_t*)plain_text, enciphered, size);
   int encrypted_size = sizeof(enciphered);
   char encoded[encrypted_size];
   encode_base64(enciphered, encrypted_size, (unsigned char*)encoded);
@@ -203,7 +199,7 @@ void encrypt(char* plain_text, char* output, int length)
 
 void decrypt(char* enciphered, char* output, int length)
 {
-  length = length; //re-adjust
+  length = length + 1; //re-adjust
   char decoded[length];
   decode_base64((unsigned char*)enciphered, (unsigned char*)decoded);
   bufferSize(enciphered, length);
@@ -218,7 +214,6 @@ void hashing(char* payload)
   SHA256 hasher;
   hasher.doUpdate(payload, strlen(payload));
   hasher.doFinal(shaResult);
-  
 }
 
 void postData(char* data) 
@@ -347,17 +342,20 @@ void makeParam()
 
 void setup() {
   Serial.begin(115200);
+  pinMode (LED, OUTPUT);
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
     Serial.println(F("SSD1306 allocation failed"));
     for (;;);
   }
 
   intro();
+  
   ble_connect();
   while (choose == 0) {
     delay(500);
     Serial.print(".");
   }
+
 
   if (deviceConnected) {
     if (choose == 1) {
@@ -370,7 +368,8 @@ void setup() {
       makeParam();
       sendParam(A);
     } 
-  }  
+  }
+
   temp.begin();
   temp.setUnit(TEMP_C);
 }
@@ -397,17 +396,13 @@ void loop() {
   bufferSize(plain_text, length);
   char encrypted[length];
 
-  unsigned long start = micros();
   encrypt(plain_text, encrypted, length);
-  unsigned long end = micros() - start;
-  Serial.print("Encryption time: ");
-  Serial.print(end);
-  Serial.println(" us");
   
   Serial.println("");
   Serial.print("Encrypted: ");
   Serial.println(encrypted);
 
+  
   if (deviceConnected) {
       if (choose == 1) {
         char data[8];
@@ -417,10 +412,10 @@ void loop() {
         pTemperatureCharacteristic->notify();
       }      
       else if(choose == 2) {
-          postData(encrypted);
+        postData(encrypted);
+        
       }
   }
-  // decrypt
   length = strlen(encrypted);
   char decrypted[length];
   decrypt(encrypted, decrypted, length);
@@ -441,7 +436,7 @@ void loop() {
   }
   printf( "\n" );
   printf( "\n" );
-
+  
   count++;
   delay(500);
 }
