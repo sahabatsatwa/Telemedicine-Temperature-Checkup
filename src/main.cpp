@@ -15,9 +15,13 @@
 #define SCREEN_HEIGHT 64
 #define SERVICE_UUID (uint16_t)0x181A
 #define CHARACTERISTIC_UUID_RX "78604f25-789e-432e-b949-6fb2306fd5d7"
+#define CHARACTERISTIC_UUID_SSID "98a8d501-07ab-42a9-94e1-d590839bf71b"
+#define CHARACTERISTIC_UUID_PASS "2b9310ca-d12c-4940-a436-c33e32be84c7"
 
-const char* ssid     = "MBC Laboratory.";
-const char* password = "123gogoans";
+const char* ssid     = "-";
+std::string eses;
+const char* password = "-";
+std::string pass;
 const String server = "192.168.1.116";
 const String port = "5000";
 const int LED = 32;
@@ -74,6 +78,24 @@ class WriteCallbacks: public BLECharacteristicCallbacks {
   }
 };
 
+class SSIDCallbacks: public BLECharacteristicCallbacks {
+  void onWrite(BLECharacteristic *pSSIDCharacteristic) {
+    eses = pSSIDCharacteristic->getValue();
+    ssid = eses.c_str();
+    Serial.println(ssid);
+  }
+};
+
+
+class PASSCallbaccks: public BLECharacteristicCallbacks {
+  void onWrite(BLECharacteristic *pPassCharacteristic) {
+    pass = pPassCharacteristic->getValue();
+    password = pass.c_str();
+    Serial.println(password);
+  }
+};
+
+
 void ble_connect()
 {
     BLEDevice::init("Temperature Device");
@@ -95,9 +117,24 @@ void ble_connect()
       BLECharacteristic::PROPERTY_WRITE
     );
 
-    pWriteCharacteristic->addDescriptor(new BLE2902());
+    BLECharacteristic *pSSIDCharacteristic = pEnvironment->createCharacteristic(
+      CHARACTERISTIC_UUID_SSID,
+      BLECharacteristic::PROPERTY_WRITE
+    );
 
+    BLECharacteristic *pPassCharacteristic = pEnvironment->createCharacteristic(
+      CHARACTERISTIC_UUID_PASS,
+      BLECharacteristic::PROPERTY_WRITE
+    );
+
+    pWriteCharacteristic->addDescriptor(new BLE2902());    
     pWriteCharacteristic->setCallbacks(new WriteCallbacks());
+
+    pSSIDCharacteristic->addDescriptor(new BLE2902());
+    pSSIDCharacteristic->setCallbacks(new SSIDCallbacks());
+    
+    pPassCharacteristic->addDescriptor(new BLE2902());
+    pPassCharacteristic->setCallbacks(new PASSCallbaccks());
 
     pEnvironment->start();
     pServer->getAdvertising()->start();
@@ -111,8 +148,8 @@ void wifi_connect()
   display.setCursor(0, 30);
   display.println(ssid);
   display.display();
-  WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
+    WiFi.begin(ssid, password);
     delay(500);
     Serial.print(".");
   }
@@ -363,6 +400,11 @@ void setup() {
     }      
     else if(choose == 2) {
       Serial.println("Lewat Wifi");
+      while (ssid == "-" || password == "-") {
+        Serial.println(ssid);
+        Serial.println(password);
+        delay(500);
+      }
       WiFi.mode(WIFI_STA);
       wifi_connect();
       makeParam();
