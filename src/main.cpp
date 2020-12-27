@@ -17,12 +17,14 @@
 #define CHARACTERISTIC_UUID_RX "78604f25-789e-432e-b949-6fb2306fd5d7"
 #define CHARACTERISTIC_UUID_SSID "98a8d501-07ab-42a9-94e1-d590839bf71b"
 #define CHARACTERISTIC_UUID_PASS "2b9310ca-d12c-4940-a436-c33e32be84c7"
+#define CHARACTERISTIC_IV "ef70f86e-a5a4-499a-81e4-d8edffcd3a7e"
+#define CHARACTERISTIC_DATA "a8e6a804-216b-4dd8-90ff-a230226b42c1"
 
 const char* ssid     = "-";
 std::string eses;
 const char* password = "-";
 std::string pass;
-const String server = "192.168.1.116";
+const String server = "159.89.204.122";
 const String port = "5000";
 const int LED = 32;
 bool deviceConnected = false;
@@ -36,6 +38,7 @@ HTTPClient http;
 typedef uint8_t byte;
 uint32_t Ka;
 uint8_t iv[16] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+char encoded_iv[64];
 byte shaResult[SHA256_SIZE];
 const uint32_t prime = 2147483647;
 const uint32_t generator = 16807;
@@ -46,6 +49,7 @@ float ambientT;
 uint32_t a;
 uint32_t A;
 BLECharacteristic *pTemperatureCharacteristic;
+BLECharacteristic *pIVCharacteristic;
 
 
 class MyServerCallbacks: public BLEServerCallbacks {
@@ -86,7 +90,6 @@ class SSIDCallbacks: public BLECharacteristicCallbacks {
   }
 };
 
-
 class PASSCallbaccks: public BLECharacteristicCallbacks {
   void onWrite(BLECharacteristic *pPassCharacteristic) {
     pass = pPassCharacteristic->getValue();
@@ -94,7 +97,6 @@ class PASSCallbaccks: public BLECharacteristicCallbacks {
     Serial.println(password);
   }
 };
-
 
 void ble_connect()
 {
@@ -106,11 +108,18 @@ void ble_connect()
     BLEService *pEnvironment = pServer->createService(SERVICE_UUID);
 
     pTemperatureCharacteristic = pEnvironment->createCharacteristic(
-        BLEUUID((uint16_t)0x2A6E),  
-        BLECharacteristic::PROPERTY_NOTIFY
+      CHARACTERISTIC_DATA,  
+      BLECharacteristic::PROPERTY_NOTIFY
     );
 
     pTemperatureCharacteristic->addDescriptor(new BLE2902());
+
+    pIVCharacteristic = pEnvironment->createCharacteristic(
+      CHARACTERISTIC_IV,
+      BLECharacteristic::PROPERTY_READ
+    );
+
+    pIVCharacteristic->addDescriptor(new BLE2902());
 
     BLECharacteristic *pWriteCharacteristic = pEnvironment->createCharacteristic(
       CHARACTERISTIC_UUID_RX,
@@ -148,8 +157,8 @@ void wifi_connect()
   display.setCursor(0, 30);
   display.println(ssid);
   display.display();
+  WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
-    WiFi.begin(ssid, password);
     delay(500);
     Serial.print(".");
   }
@@ -162,6 +171,13 @@ void wifi_connect()
   display.println(WiFi.localIP());
   display.display();
   delay(5000);
+}
+
+void makeIV() 
+{
+  RNG::fill(iv, 16);
+  int iv_size = sizeof(iv);
+  encode_base64(iv, iv_size, (unsigned char*)encoded_iv);
 }
 
 uint32_t keyGen() 
@@ -274,20 +290,13 @@ void postData(char* data)
 
 void sendParam(uint32_t pub) 
 {
-
-  
   String url = "http://" + server + ":" + port + "/postkey";
   http.begin(url);
   http.addHeader("Content-Type", "application/json");
   String pub_key = String(pub);
-  
-  int iv_size = sizeof(iv);
-  char encoded_iv[64];
-  encode_base64(iv, iv_size, (unsigned char*)encoded_iv);
   String iv = String(encoded_iv);
   Serial.println(iv);
   int httpResponseCode = http.POST("{\"pub_key\":\"" + pub_key + "\", \"iv\":\"" + iv + "\"}");
-  //int httpResponseCode = http.POST("{\"pub_key\":\"" + pub_key + "\"}");
   if (httpResponseCode > 0) {
     String response = http.getString();
     Serial.println(httpResponseCode);
@@ -345,7 +354,7 @@ void tampilSuhu()
 
 void makeParam() 
 {
-  RNG::fill(iv, 16);
+  makeIV();
   //memulai pertukaran kunci dengan diffie hellman
   a = keyGen();
   A = pow_mod(generator, a, prime);
@@ -396,10 +405,22 @@ void setup() {
 
   if (deviceConnected) {
     if (choose == 1) {
-      Serial.println("Lewat Bluetooth");
+      display.clearDisplay();
+      display.setCursor(15, 20);
+      display.println("Mode Bluetooth");
+      display.display();
+      delay(2000);
+      makeIV();
+      pIVCharacteristic->setValue(encoded_iv);
     }      
     else if(choose == 2) {
-      Serial.println("Lewat Wifi");
+      display.clearDisplay();
+      display.setCursor(15, 20);
+      display.println("Mode Wi-Fi");
+      display.setCursor(10, 30);
+      display.println("Masukkan SSID dan Password");
+      display.display();
+      delay(2000);
       while (ssid == "-" || password == "-") {
         Serial.println(ssid);
         Serial.println(password);
@@ -447,10 +468,7 @@ void loop() {
   
   if (deviceConnected) {
       if (choose == 1) {
-        char data[8];
-        dtostrf(objectT, 2, 2, data);
-        Serial.println(data);
-        pTemperatureCharacteristic->setValue(data);
+        pTemperatureCharacteristic->setValue(encrypted);
         pTemperatureCharacteristic->notify();
       }      
       else if(choose == 2) {
