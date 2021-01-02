@@ -395,8 +395,8 @@ void setup() {
   }
 
   intro();
-  
   ble_connect();
+
   while (choose == 0) {
     delay(500);
     Serial.print(".");
@@ -426,10 +426,13 @@ void setup() {
         Serial.println(password);
         delay(500);
       }
+      Serial.println("waktu mulai");
       WiFi.mode(WIFI_STA);
       wifi_connect();
       makeParam();
       sendParam(A);
+
+      Serial.println("wakut selesai wifi init ");
     } 
   }
 
