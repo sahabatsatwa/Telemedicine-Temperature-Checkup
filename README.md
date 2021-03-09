@@ -1,4 +1,7 @@
-# Telemedicine-Temperature-Checkup
+# Telemedicine Temperature Checkup
+## This system using ESP32 microcontroller
+
+The data sent by device will be stored in the MongoDB database, and using REST API for method of sending data. Using the MLX90614 temperature sensor to read body temperature. 
 
 0x1008 -> Body Temperature Characteristic <br />
 0x1400 -> HDP Service <br /><br />
